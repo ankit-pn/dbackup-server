@@ -1,0 +1,4 @@
+scope: 
+  - https://www.googleapis.com/auth/drive.readonly
+  - openid
+  - https://www.googleapis.com/auth/userinfo.email

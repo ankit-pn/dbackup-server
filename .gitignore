@@ -1,0 +1,5 @@
+saved_data
+venv
+credentials.db
+credentials.json
+__pycache__
