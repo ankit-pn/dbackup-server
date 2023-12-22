@@ -444,7 +444,7 @@ def generate_hcsv():
     join_query = """
     SELECT hc.folder, hc.youtube_watched, hc.browser_history, MAX(f.last_backup) as last_backup
     FROM history_counts hc
-    JOIN folders f ON hc.folder = f.folder_name
+    JOIN folders f ON hc.folder = f.user_id
     GROUP BY hc.folder
     """
     cursor_credentials.execute(join_query)
