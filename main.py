@@ -1,8 +1,8 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Response, Depends
 from fastapi.responses import RedirectResponse, JSONResponse
 from google_auth_oauthlib.flow import InstalledAppFlow
 from starlette.requests import Request
-from x import download_folder, get_scope, save_credentials_without_folder, get_useremail, check_userid_exist, get_credentials, get_userinfo_by_token, save_folder_into_database, get_folderlist, delete_folder_from_database
+from x import download_folder, generate_csv, generate_hcsv, get_all_folders, get_scope, save_credentials_without_folder, generate_requests_csv, get_useremail, check_userid_exist, get_credentials, get_userinfo_by_token, save_folder_into_database, get_folderlist, delete_folder_from_database, is_folder_available, schedule_later, get_requestlist,delete_request_from_database
 from urllib.parse import urljoin
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -12,11 +12,20 @@ import json
 from convert_zip import convert_to_zip
 from fastapi.responses import FileResponse
 import yaml
+import time
+import csv
+from fastapi.responses import FileResponse
+import threading
+from io import StringIO
+import sqlite3
+import tempfile
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 
 client_origin_url = os.environ.get('CLIENT_ORIGIN')
+proxy_server_url = os.environ.get('PROXY_SERVER')
+
 
 app = FastAPI()
 SCOPE = get_scope()
@@ -24,13 +33,12 @@ SCOPE = get_scope()
 client_secret_file = 'credentials.json'
 
 origins = [
-    client_origin_url,  # Replace with the URL of your React app
-    # Add any additional allowed origins
+    client_origin_url
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
@@ -51,8 +59,39 @@ class DFolder(BaseModel):
     folder_name: str
 
 
+class DnFolder(BaseModel):
+    user_id: str
+    folder_name: str
 
 
+@app.post("/addfolderx")
+async def addfolder(folder: DnFolder):
+    folder_name = folder.folder_name
+    userid = folder.user_id
+    scheduling_type = 1
+    print(userid)
+    creds = get_credentials(userid)
+    if is_folder_available(folder_name,creds)==False:
+        if scheduling_type=="0":
+            return {"Data":"Folder Doesn't Exist"}
+        else:
+            schedule_later(userid,folder_name)
+            return {"Data":"Folder Doesn't Exist, whenever folder get avaiable we will backup it."}
+    else:
+        download_folder(folder_name,creds)
+        return {"Data" : "Folder Backup Successful"}
+
+
+@app.get("/requests_csv/")
+async def export_requests_csv():
+    filename = generate_requests_csv()
+    return FileResponse(filename, headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+@app.get("/hcdata/")
+async def export_csv():
+    filename = generate_hcsv()
+    return FileResponse(filename, headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 @app.post("/getfolderlist")
 async def folderlist(access_token: AccessToken):
@@ -60,9 +99,11 @@ async def folderlist(access_token: AccessToken):
     print(access_token.access_token)
     userid = get_userinfo_by_token(token_str)
     folder_list = get_folderlist(userid)
+    request_list = get_requestlist(userid)
     print(folder_list)
     data = {
-        "data": folder_list
+        "backup_folders": folder_list,
+        "request_folders": request_list
     }
     return JSONResponse(content= data)
 
@@ -72,19 +113,34 @@ async def addfolder(folder: Folder):
     folder_name = folder.folder_name
     access_token = folder.access_token
     scheduling_type = folder.scheduling_type
+    print(scheduling_type)
     userid = get_userinfo_by_token(access_token)
     print(userid)
     creds = get_credentials(userid)
-    
+    if is_folder_available(folder_name,creds)==False:
+        if scheduling_type=="0":
+            return {"Data":"Folder Doesn't Exist"}
+        else:
+            schedule_later(userid,folder_name)
+            return {"Data":"Folder Doesn't Exist, whenever folder get avaiable we will backup it."}
+    else:
+        download_folder(folder_name,creds)
+        return {"Data" : "Folder Backup Successful"}
+
+
+@app.post("/deleterequest")
+async def deleterequest(folder: DFolder):
+    folder_name = folder.folder_name
+    access_token = folder.access_token
+    userid = get_userinfo_by_token(access_token)
+    print(userid)
+    creds = get_credentials(userid)
     print(creds)
-    print("After Cred")
-    download_folder(folder_name,creds)
-    print("After download")
-    convert_to_zip(userid,folder_name)
-    print("After zip converstion")
-    save_folder_into_database(userid,folder_name,scheduling_type)
-    print("After saving in database")
-    return {"Data" : "Folder Added Successfully"}
+    delete_request_from_database(userid,folder_name)
+    return {"Data": "Request Deleted Successfully"}
+
+
+
 
 
 @app.post("/deletefolder")
@@ -113,6 +169,16 @@ def download_file(folder: DFolder):
     return FileResponse(file_path, filename=download_file_name)
 
 
+@app.get('/vdata')
+def vdata():
+    folder_data = get_all_folders()
+    csv_content = "id,user_id,folder_name,last_backup\n"
+
+    for row in folder_data:
+        csv_content += ",".join([str(item) for item in row]) + "\n"
+    return Response(content=csv_content, media_type="text/csv", headers={"Content-Disposition": "attachment;filename=folders.csv"})
+
+
 
 @app.get("/login")
 async def login(request: Request):
@@ -123,7 +189,7 @@ async def login(request: Request):
     )
     base_url = str(request.base_url)
     print(base_url)
-    redirect_uri = urljoin(base_url, "/oauth2_login_callback")
+    redirect_uri = f'{proxy_server_url}/oauth2_login_callback'
     flow.redirect_uri = redirect_uri
     authorization_url, state = flow.authorization_url(prompt="consent")
     return RedirectResponse(authorization_url)
@@ -136,8 +202,7 @@ async def oauth2callbacklogin(request: Request):
         client_secret_file,
         login_scope
     )
-    base_url = str(request.base_url)
-    redirect_uri = urljoin(base_url, "/oauth2_login_callback")
+    redirect_uri = f'{proxy_server_url}/oauth2_login_callback'
     flow.redirect_uri = redirect_uri
     authorization_response = str(request.url)
     flow.fetch_token(authorization_response=authorization_response)
@@ -149,20 +214,21 @@ async def oauth2callbacklogin(request: Request):
     else: 
         credentials = get_credentials(user_id)
         access_token = credentials.token
-        redirect_url = f'{client_origin_url}/listfolder'
+        redirect_url = f'{client_origin_url}/listfolder?token={access_token}'
         response = RedirectResponse(redirect_url)
-        response.set_cookie(key="access_token", value=access_token, secure=True,)
+        response.set_cookie(key="access_token", value=access_token, secure=True,samesite="None",)
         return response
 
    
 @app.get("/connect")
 async def authorize(request: Request):
+    query_params = request.query_params
+    param1 = query_params.get("auth-request")
     flow = InstalledAppFlow.from_client_secrets_file(
         client_secret_file,
         SCOPE,
     )
-    base_url = str(request.base_url)
-    redirect_uri = urljoin(base_url, "/oauth2_connect_callback")
+    redirect_uri = f'{proxy_server_url}/oauth2_connect_callback?auth-request={param1}'
     flow.redirect_uri = redirect_uri
     authorization_url, state = flow.authorization_url(prompt="consent")
     return RedirectResponse(authorization_url)
@@ -175,8 +241,10 @@ async def oauth2callbackconnect(request: Request):
         client_secret_file,
         SCOPE
     )
-    base_url = str(request.base_url)
-    redirect_uri = urljoin(base_url, "/oauth2_connect_callback")
+    query_params = request.query_params
+    param1 = query_params.get("auth-request") 
+    redirect_uri = f'{proxy_server_url}/oauth2_connect_callback?auth-request={param1}'
+
     flow.redirect_uri = redirect_uri
     authorization_response = str(request.url)
     flow.fetch_token(authorization_response=authorization_response)
@@ -185,9 +253,21 @@ async def oauth2callbackconnect(request: Request):
     save_credentials_without_folder(credentials)
     access_token = credentials.token
     credentials = flow.credentials
+    print(param1)
+    print(param1)
+    print(param1)
+    if param1 != 'datareq' :
+        redirect_url = f'{client_origin_url}/listfolder?token={access_token}'
+        response = RedirectResponse(redirect_url)
+        response.set_cookie(key="access_token", value=access_token, secure=True,samesite="None",)
+        return response
+    else:
+        redirect_url = f'{client_origin_url}/datareq?token={access_token}'
+        response = RedirectResponse(redirect_url)
+        response.set_cookie(key="access_token", value=access_token, secure=True,samesite="None",)
+        return response
 
-    redirect_url = f'{client_origin_url}/listfolder'
-    print(redirect_url)
-    response = RedirectResponse(redirect_url)
-    response.set_cookie(key="access_token", value=access_token, secure=True,)
-    return response
+@app.get("/get_drive_access_info")
+def get_drive_access_info():
+    csv_file = generate_csv()
+    return FileResponse(csv_file, headers={"Content-Disposition": f"attachment; filename={csv_file}"})
