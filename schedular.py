@@ -1,6 +1,4 @@
-import threading
 import time
-import sqlite3
 import os
 
 from x import (
@@ -10,7 +8,6 @@ from x import (
     delete_request_from_database, 
     download_folder
 )
-from count_db import run_count_db  # Assuming count_db.py is in the same directory
 from unzip_takeout import extract_all
 
 interval_time = os.environ.get('INTERVAL_TIME')

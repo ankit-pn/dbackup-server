@@ -1,24 +1,13 @@
-from fastapi import FastAPI, HTTPException, Response, Depends
+from fastapi import FastAPI, Response
 from fastapi.responses import RedirectResponse, JSONResponse
 from google_auth_oauthlib.flow import InstalledAppFlow
 from starlette.requests import Request
-from x import download_folder, generate_csv, generate_hcsv, get_all_folders, get_scope, save_credentials_without_folder, generate_requests_csv, get_useremail, check_userid_exist, get_credentials, get_userinfo_by_token, save_folder_into_database, get_folderlist, delete_folder_from_database, is_folder_available, schedule_later, get_requestlist,delete_request_from_database
-from urllib.parse import urljoin
+from x import download_folder, generate_csv, generate_hcsv, get_all_folders, get_scope, save_credentials_without_folder, generate_requests_csv, get_useremail, check_userid_exist, get_credentials, get_userinfo_by_token, get_folderlist, delete_folder_from_database, is_folder_available, schedule_later, get_requestlist,delete_request_from_database
 from fastapi.middleware.cors import CORSMiddleware
 import os
-from typing import Any
 from pydantic import BaseModel
-import json
-from convert_zip import convert_to_zip
 from fastapi.responses import FileResponse
-import yaml
-import time
-import csv
 from fastapi.responses import FileResponse
-import threading
-from io import StringIO
-import sqlite3
-import tempfile
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 

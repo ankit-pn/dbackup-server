@@ -2,7 +2,6 @@ import os.path
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import yaml
@@ -10,16 +9,10 @@ import io
 from googleapiclient.http import MediaIoBaseDownload
 import json
 import sqlite3
-import time
 from datetime import datetime
-import googleapiclient.discovery
-from google.oauth2 import credentials
 import requests
-from fastapi.responses import JSONResponse
-import zipfile
 import os
 import csv
-from fastapi.responses import FileResponse
 import pytz
 from convert_zip import convert_to_zip
 
@@ -286,7 +279,6 @@ def check_userid_exist(user_id):
     conn = connect_to_database("credentials.db")
     cursor = conn.cursor()
     print(user_id)
-    user_id_str = str(user_id)
     cursor.execute("SELECT * from access_credentials where user_id=?", (user_id,))
     row = cursor.fetchone()
     cursor.connection.commit()
@@ -408,7 +400,8 @@ def check_drive_access(creds):
         results = drive_service.files().list(pageSize=1).execute()
         
         # If the above line doesn't throw an exception, you have access
-        return True
+        if results:
+            return True
     except HttpError as error:
         # If an HTTP error occurs, print it and return False
         print(f"An error occurred: {error}")
@@ -483,10 +476,5 @@ def generate_requests_csv():
         writer.writerows(records)  # Write the records
 
     return filename
-# print(get_scope())
-# main("Takeout")
-
-__all__ = ['download_folder', 'get_scope', 'get_all_folders', 'save_credentials_without_folder', 'get_useremail', 'check_userid_exist',
-           'get_userinfo_by_token','generate_hcsv', 'save_folder_into_database','generate_csv', 'get_folderlist', 'delete_folder_from_database','zip_folder', 'is_folder_available','delete_request_from_database','get_requestlist']
 
 print('EveryThing is Ok')
