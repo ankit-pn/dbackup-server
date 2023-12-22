@@ -434,44 +434,38 @@ def generate_csv():
 
     return filename
 
-import sqlite3
-import csv
-
 def generate_hcsv():
-    filename = "history.csv"
+    filename = "unique_history_counts_latest_backup.csv"
 
-    # Connect to counts.db
+    # Connect to counts.db and fetch history_counts data
     conn_counts = sqlite3.connect("counts.db")
     cursor_counts = conn_counts.cursor()
-
-    # Connect to credentials.db
-    conn_credentials = sqlite3.connect("credentials.db")
-    cursor_credentials = conn_credentials.cursor()
-
-    # SQL JOIN Query to get unique folders with the latest backup date
-    join_query = """
-    SELECT hc.folder, hc.youtube_watched, hc.browser_history, MAX(f.last_backup) as last_backup
-    FROM history_counts hc
-    JOIN folders f ON hc.folder = f.folder_name
-    GROUP BY hc.folder
-    """
-    cursor_credentials.execute(join_query)
-    records = cursor_credentials.fetchall()
-
-    # Get field names for the CSV file
-    field_names = [desc[0] for desc in cursor_credentials.description]
-
-    # Close connections
+    cursor_counts.execute("SELECT * FROM history_counts")
+    history_data = {row[0]: row[1:] for row in cursor_counts.fetchall()}
     cursor_counts.close()
     conn_counts.close()
+
+    # Connect to credentials.db and fetch the latest backup dates
+    conn_credentials = sqlite3.connect("credentials.db")
+    cursor_credentials = conn_credentials.cursor()
+    cursor_credentials.execute("SELECT folder_name, MAX(last_backup) FROM folders GROUP BY folder_name")
+    backup_data = {row[0]: row[1] for row in cursor_credentials.fetchall()}
     cursor_credentials.close()
     conn_credentials.close()
 
+    # Combine data
+    combined_data = []
+    for folder, data in history_data.items():
+        last_backup = backup_data.get(folder)
+        if last_backup:
+            combined_data.append((folder,) + data + (last_backup,))
+
     # Write data to CSV file
+    field_names = ["folder", "youtube_watched", "browser_history", "last_backup"]
     with open(filename, mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(field_names)  # Write the header
-        writer.writerows(records)  # Write the records
+        writer.writerow(field_names)
+        writer.writerows(combined_data)
 
     return filename
 
