@@ -463,4 +463,25 @@ def generate_hcsv():
 
     return filename
 
+def generate_requests_csv():
+    filename = "requests_data.csv"
+    conn = sqlite3.connect("credentials.db")
+    cursor = conn.cursor()
+
+    # Execute SQL command to get all records from requests
+    cursor.execute("SELECT * FROM requests")
+    records = cursor.fetchall()
+    field_names = [desc[0] for desc in cursor.description]
+
+    # Close the connection
+    cursor.close()
+    conn.close()
+
+    with open(filename, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(field_names)  # Write the header
+        writer.writerows(records)  # Write the records
+
+    return filename
+
 print('EveryThing is Ok')
