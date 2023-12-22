@@ -9,7 +9,7 @@ from x import (
     download_folder
 )
 from unzip_takeout import extract_all
-
+from convert_zip import run_count_db
 interval_time = os.environ.get('INTERVAL_TIME')
 
 def background_downloader():
@@ -48,6 +48,7 @@ def scheduler():
     while True:
         background_downloader()
         extract_all()
+        run_count_db()
         print('Running Scheduler...')
         time.sleep(1200)
 

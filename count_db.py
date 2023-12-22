@@ -13,7 +13,7 @@ class MyHTMLParser(HTMLParser):
         self.count += data.lower().count("watched")
 
 # Initialize SQLite database
-def db_initialize(db_name='counts.db'):
+def db_initialize(db_name='credentials.db'):
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS history_counts

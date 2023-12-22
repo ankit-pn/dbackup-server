@@ -10,7 +10,6 @@ services:
     volumes:
       - /home/kg766/dbackup/mnt/credentials.db:/dbackup-server/credentials.db
       - /home/kg766/dbackup/mnt/saved_data:/dbackup-server/saved_data
-      - /home/kg766/dbackup/mnt/counts.db:/dbackup-server/counts.db
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]
 
   scheduler:
@@ -18,7 +17,6 @@ services:
     volumes:
       - /home/kg766/dbackup/mnt/credentials.db:/dbackup-server/credentials.db
       - /home/kg766/dbackup/mnt/saved_data:/dbackup-server/saved_data
-      - /home/kg766/dbackup/mnt/counts.db:/dbackup-server/counts.db
     command: ["python3","-u", "schedular.py"]
     environment:
       - INTERVAL_TIME=1200
