@@ -82,4 +82,5 @@ def run_count_db():
     conn, cursor = db_initialize()
     count_watched_keyword(folder_path, conn, cursor)
     count_browser_history(folder_path, conn, cursor)
+    print("History database has been refreshed")
     conn.close()
