@@ -9,7 +9,8 @@ from x import (
     download_folder
 )
 from unzip_takeout import extract_all
-from convert_zip import run_count_db
+from count_db import run_count_db
+
 interval_time = os.environ.get('INTERVAL_TIME')
 
 def background_downloader():

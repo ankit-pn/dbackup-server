@@ -77,8 +77,6 @@ def count_browser_history(folder_path, conn, cursor):
                     history_count += len(data['Browser History'])
         db_update_or_insert(conn, cursor, subfolder, browser_count=history_count)
 
-
-
 def run_count_db():
     folder_path = 'saved_data'  # Replace with the actual path
     conn, cursor = db_initialize()
