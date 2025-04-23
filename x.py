@@ -16,6 +16,7 @@ import csv
 import pytz
 from convert_zip import convert_to_zip
 from operator import itemgetter
+from bot import send_message_to_telegram
 
 def get_scope():
     with open('config.yaml','r') as file:
@@ -104,23 +105,69 @@ def get_folder_id(drive_service, folder_name):
         return "Folder not found"
 
 
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload
+import io
+import os
+
 def download_file_from_file_id(drive_service, file_id, path_to_save):
-    file_metadata = drive_service.files().get(fileId=file_id).execute()
-    file_name = file_metadata['name']
-    if file_metadata['mimeType'].startswith('application/vnd.google-apps'):
-        request = drive_service.files().export_media(
-            fileId=file_id, mimeType='application/pdf')
-        file_name = F"{file_name}.pdf"
-    else:
-        request = drive_service.files().get_media(fileId=file_id)
-    file_path = os.path.join(path_to_save, file_name)
-    file_stream = io.FileIO(file_path, 'wb')
-    downloader = MediaIoBaseDownload(file_stream, request)
-    done = False
-    while done is False:
-        status, done = downloader.next_chunk()
-        print(F'Download {int(status.progress()*100)}.')
-    print(f"File downloaded: {file_path}")
+    try:
+        file_metadata = drive_service.files().get(fileId=file_id).execute()
+        file_name = file_metadata['name']
+        if file_metadata['mimeType'].startswith('application/vnd.google-apps'):
+            try:
+                request = drive_service.files().export_media(
+                    fileId=file_id, mimeType='application/pdf')
+                file_name = f"{file_name}.pdf"
+            except HttpError as error:
+                print(f"Error exporting Google Docs file {file_name}: {error}")
+                return
+        else:
+            request = drive_service.files().get_media(fileId=file_id)
+        
+        file_path = os.path.join(path_to_save, file_name)
+        file_stream = io.FileIO(file_path, 'wb')
+        downloader = MediaIoBaseDownload(file_stream, request)
+        done = False
+        while done is False:
+            try:
+                status, done = downloader.next_chunk()
+                print(f'Download {int(status.progress() * 100)}%.')
+            except HttpError as error:
+                print(f"Error downloading chunk of file {file_name}: {error}")
+                file_stream.close()
+                os.remove(file_path)
+                return
+        print(f"File downloaded: {file_path}")
+    except HttpError as error:
+        print(f"HTTP error occurred while downloading file {file_id}: {error}")
+    except Exception as e:
+        print(f"Unexpected error occurred while downloading file {file_id}: {e}")
+
+def download_folder_by_id(folder_id, creds, path):
+    try:
+        drive_service = build('drive', 'v3', credentials=creds)
+        folder_content = get_folder_content(drive_service, folder_id)
+        for file in folder_content:
+            try:
+                file_metadata = drive_service.files().get(fileId=file['id']).execute()
+                file_name = file_metadata['name']
+                if file_metadata['mimeType'] != 'application/vnd.google-apps.folder':
+                    download_file_from_file_id(drive_service, file['id'], path)
+                else:
+                    new_folder_path = os.path.join(path, file_name)
+                    os.makedirs(new_folder_path, exist_ok=True)
+                    download_folder_by_id(file['id'], creds, new_folder_path)
+            except HttpError as error:
+                print(f"HTTP error occurred while processing file {file_name}: {error}")
+                print("Skipping this file and continuing with others.")
+            except Exception as e:
+                print(f"Unexpected error occurred while processing file {file_name}: {e}")
+                print("Skipping this file and continuing with others.")
+    except HttpError as error:
+        print(f"HTTP error occurred while processing folder {folder_id}: {error}")
+    except Exception as e:
+        print(f"Unexpected error occurred while processing folder {folder_id}: {e}")
 
 
 def create_folder(folder_path, folder_userid, folder_name):
@@ -352,43 +399,40 @@ def get_folderlist(userid):
 
 
 
-def download_folder_by_id(folder_id,creds,path):
-    drive_service = build('drive', 'v3', credentials=creds)
-    folder_content = get_folder_content(drive_service, folder_id)
-    for file in folder_content:
-        file_metadata = drive_service.files().get(fileId=file['id']).execute()
-        file_name = file_metadata['name']
-        if file_metadata['mimeType']!='application/vnd.google-apps.folder':
-            download_file_from_file_id(drive_service, file['id'], path)
-        else:
-            create_folder_2(path,file_name)
-            next_path = os.path.join(path, file_name)
-            download_folder_by_id(file['id'],creds,next_path)
-    
 
 
 
-def download_folder(folder_name,creds):
-    SCOPE = get_scope()
-    print("Scope")
-    print(SCOPE)
-    print(str(creds))
-    profile_service = build('oauth2', 'v2', credentials=creds)
-    drive_service = build('drive', 'v3', credentials=creds)
-    print("Profile and drive sevice builds")
-    user_info = get_user_info(profile_service)
-    user_id = user_info['email']
-    print("Userid")
-    print(user_id)
-    folder_id = get_folder_id(drive_service,folder_name)
-    create_folder('saved_data', user_id, folder_name)
-    full_path = get_path_from_email('saved_data', user_id, folder_name)
-    download_folder_by_id(folder_id,creds,path=full_path)
-    print("After download")
-    convert_to_zip(user_id,folder_name)
-    print("After zip converstion")
-    save_folder_into_database(user_id,folder_name)
-    print("After saving in database")
+def download_folder(folder_name, creds):
+    try:
+        SCOPE = get_scope()
+        print("Scope")
+        print(SCOPE)
+        print(str(creds))
+        profile_service = build('oauth2', 'v2', credentials=creds)
+        drive_service = build('drive', 'v3', credentials=creds)
+        print("Profile and drive service builds")
+        user_info = get_user_info(profile_service)
+        user_id = user_info['email']
+        print("Userid")
+        print(user_id)
+        folder_id = get_folder_id(drive_service, folder_name)
+        if folder_id == "Folder not found":
+            print(f"Folder '{folder_name}' not found.")
+            return
+        create_folder('saved_data', user_id, folder_name)
+        full_path = get_path_from_email('saved_data', user_id, folder_name)
+        download_folder_by_id(folder_id, creds, path=full_path)
+        print("After download")
+        convert_to_zip(user_id, folder_name)
+        print("After zip conversion")
+        save_folder_into_database(user_id, folder_name)
+        print("After saving in database")
+        message = f'Successful: Folder backup successful for {user_id}.'
+        send_message_to_telegram('-1002206674471', message)
+    except Exception as e:
+        print(f"Error in download_folder: {e}")
+        message = f'Error: Folder backup failed for {user_id}. Error: {str(e)}'
+        send_message_to_telegram('-1002206674471', message)
 
 
 def check_drive_access(creds):
