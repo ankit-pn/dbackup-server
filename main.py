@@ -8,8 +8,15 @@ import os
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.responses import FileResponse
-import json
-from bot import send_message_to_telegram
+
+from fastapi import UploadFile, File, Form, HTTPException
+import pathlib, shutil, datetime
+
+
+
+
+
+
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 
@@ -308,3 +315,66 @@ async def receive_survey(request: Request):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Ensure the formResponse directory exists
+if not os.path.exists("formResponse"):
+    os.makedirs("formResponse")
+
+@app.post("/survey")
+async def receive_survey(request: Request):
+    try:
+        survey_data = await request.json()
+        cid = survey_data.get("cid")
+        email = survey_data.get("email")
+        if not cid:
+            raise HTTPException(status_code=400, detail="cid is required")
+        
+        file_path = os.path.join("formResponse", f"{cid}.json")
+        
+        with open(file_path, "w") as file:
+            json.dump(survey_data, file)
+        message = f'Survey data received successfully for cid: {cid} . Associated email with this cid is  {email}. Only use this email to further authentication'
+        send_message_to_telegram('-1002228329906', message)
+        return {"message": "Survey data received successfully"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+def sanitize_email(email: str) -> str:
+    """Replace characters that cannot be used in folder names."""
+    return email.replace("@", "_at_").replace("/", "_sl_")
+
+
+
+@app.post("/upload-chatgpt-data/")
+async def upload_chatgpt_data(
+    email: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """
+    Save the raw ChatGPT export ZIP exactly as it is.
+    """
+    if not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only .zip files allowed")
+
+    # base directory for all uploads (create if it doesn't exist)
+    base_dir = pathlib.Path("chatgpt_uploads")
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    # user-specific folder
+    user_dir = base_dir / sanitize_email(email)
+    user_dir.mkdir(exist_ok=True)
+
+    # prepend timestamp to avoid collisions
+    timestamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    dest_path = user_dir / f"{timestamp}_{file.filename}"
+
+    # save the file
+    with dest_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    return {"status": "success", "saved_to": str(dest_path)}
