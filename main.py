@@ -9,6 +9,14 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.responses import FileResponse
 
+from fastapi import UploadFile, File, Form, HTTPException
+import pathlib, shutil, datetime
+
+
+
+
+
+
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 
@@ -260,3 +268,41 @@ async def oauth2callbackconnect(request: Request):
 def get_drive_access_info():
     csv_file = generate_csv()
     return FileResponse(csv_file, headers={"Content-Disposition": f"attachment; filename={csv_file}"})
+
+
+
+
+def sanitize_email(email: str) -> str:
+    """Replace characters that cannot be used in folder names."""
+    return email.replace("@", "_at_").replace("/", "_sl_")
+
+
+
+@app.post("/upload-chatgpt-data/")
+async def upload_chatgpt_data(
+    email: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """
+    Save the raw ChatGPT export ZIP exactly as it is.
+    """
+    if not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only .zip files allowed")
+
+    # base directory for all uploads (create if it doesn't exist)
+    base_dir = pathlib.Path("chatgpt_uploads")
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    # user-specific folder
+    user_dir = base_dir / sanitize_email(email)
+    user_dir.mkdir(exist_ok=True)
+
+    # prepend timestamp to avoid collisions
+    timestamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    dest_path = user_dir / f"{timestamp}_{file.filename}"
+
+    # save the file
+    with dest_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    return {"status": "success", "saved_to": str(dest_path)}
