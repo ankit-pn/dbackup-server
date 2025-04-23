@@ -17,6 +17,7 @@ services:
     volumes:
       - /home/kg766/dbackup/mnt/credentials.db:/dbackup-server/credentials.db
       - /home/kg766/dbackup/mnt/saved_data:/dbackup-server/saved_data
+      - /home/kg766/dbackup/chatgpt_uploads:/dbackup-server/chatgpt_uploads
     command: ["python3","-u", "schedular.py"]
     environment:
       - INTERVAL_TIME=1200
