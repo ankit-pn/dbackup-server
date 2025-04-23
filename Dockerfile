@@ -11,8 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Create /saved_data folder inside /dbackup-server
-RUN mkdir /dbackup-server/saved_data
-
+RUN mkdir /dbackup-server/saved_data /dbackup-server/logs
 # Copy the FastAPI server files to the container
 COPY . .
 

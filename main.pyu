@@ -302,7 +302,7 @@ async def receive_survey(request: Request):
         
         with open(file_path, "w") as file:
             json.dump(survey_data, file)
-        message = f'Survey data received successfully for cid: {cid} . Associated email with this cid is  {email}. Only use this email to further authentication'
+        message = "Survey data received successfully for cid: {} . Email associated with is {email}".format(cid)
         send_message_to_telegram('-1002228329906', message)
         return {"message": "Survey data received successfully"}
     
