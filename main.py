@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi import UploadFile, File, Form, HTTPException
 import pathlib, shutil, datetime
 
-
+from bot import send_message_to_telegram
 
 
 
@@ -350,16 +350,50 @@ def sanitize_email(email: str) -> str:
 
 
 
+# @app.post("/upload-chatgpt-data/")
+# async def upload_chatgpt_data(
+#     email: str = Form(...),
+#     file: UploadFile = File(...)
+# ):
+#     """
+#     Save the raw ChatGPT export ZIP exactly as it is.
+#     """
+#     if not file.filename.lower().endswith(".zip"):
+#         raise HTTPException(status_code=400, detail="Only .zip files allowed")
+
+#     # base directory for all uploads (create if it doesn't exist)
+#     base_dir = pathlib.Path("chatgpt_uploads")
+#     base_dir.mkdir(parents=True, exist_ok=True)
+
+#     # user-specific folder
+#     user_dir = base_dir / sanitize_email(email)
+#     user_dir.mkdir(exist_ok=True)
+
+#     # prepend timestamp to avoid collisions
+#     timestamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+#     dest_path = user_dir / f"{timestamp}_{file.filename}"
+
+#     # save the file
+#     with dest_path.open("wb") as buffer:
+#         shutil.copyfileobj(file.file, buffer)
+
+#     # Send notification to Telegram
+#     message = f"ChatGPT data uploaded for {email}. Saved to {dest_path}."
+#     send_message_to_telegram('-1002228329906', message)
+
+#     return {"status": "success", "saved_to": str(dest_path)}
+
+
 @app.post("/upload-chatgpt-data/")
 async def upload_chatgpt_data(
     email: str = Form(...),
     file: UploadFile = File(...)
 ):
     """
-    Save the raw ChatGPT export ZIP exactly as it is.
+    Save ChatGPT export files (only .html or .json) exactly as they are.
     """
-    if not file.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=400, detail="Only .zip files allowed")
+    if not (file.filename.lower().endswith(".html") or file.filename.lower().endswith(".json")):
+        raise HTTPException(status_code=400, detail="Only .html and .json files are allowed")
 
     # base directory for all uploads (create if it doesn't exist)
     base_dir = pathlib.Path("chatgpt_uploads")
@@ -377,4 +411,48 @@ async def upload_chatgpt_data(
     with dest_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # Send notification to Telegram
+    message = f"ChatGPT data uploaded for {email}. Saved to {dest_path}."
+    send_message_to_telegram('-1002228329906', message)
+
     return {"status": "success", "saved_to": str(dest_path)}
+
+
+
+@app.post("/upload-audio/")
+async def upload_audio(file: UploadFile = File(...)):
+    """
+    Save uploaded audio file (.mp3 or .wav) using the provided filename.
+    """
+    if not (file.filename.lower().endswith(".mp3") or file.filename.lower().endswith(".wav")):
+        raise HTTPException(status_code=400, detail="Only .mp3 and .wav files are allowed")
+
+    base_dir = pathlib.Path("audio")
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    dest_path = base_dir / file.filename
+
+    with dest_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    return {"status": "success", "saved_to": str(dest_path)}
+
+
+@app.get("/list-audio/")
+async def list_audio_files():
+    """
+    List all audio files in the 'audio' folder.
+    """
+    base_dir = pathlib.Path("audio")
+
+    if not base_dir.exists():
+        return {"files": []}
+
+    files = [
+        str(f.name)
+        for f in base_dir.iterdir()
+        if f.is_file() and (f.suffix.lower() in [".mp3", ".wav"])
+    ]
+
+    return {"files": files}
+
