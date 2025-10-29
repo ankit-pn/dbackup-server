@@ -1,6 +1,6 @@
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from googleapiclient.errors import HttpError
 from googleapiclient.discovery import build
 
@@ -9,13 +9,37 @@ from x import (
     connect_to_database, 
     get_credentials, 
     delete_request_from_database, 
-    download_folder
+    download_folder,
+    get_user_registration_time
 )
 from unzip_takeout import extract_all
 from count_db import run_count_db
 
-# Set interval time to 10 minutes (600 seconds)
-interval_time = 600
+# Interval time (seconds); allow override via env
+try:
+    interval_time = int(os.getenv('INTERVAL_TIME', '600'))
+except Exception:
+    interval_time = 600
+
+# Optional cutoff date for user registrations. If set, only users registered
+# at or after this datetime are processed. ISO 8601 expected (e.g., 2024-07-01 or 2024-07-01T00:00:00Z)
+def _parse_cutoff(value: str):
+    if not value:
+        return None
+    try:
+        v = value.strip()
+        # Normalize trailing Z to +00:00 for fromisoformat
+        if v.endswith('Z'):
+            v = v[:-1] + '+00:00'
+        dt = datetime.fromisoformat(v)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+_CUTOFF_STR = os.getenv('REGISTRATION_CUTOFF_DATE', '').strip()
+REGISTRATION_CUTOFF = _parse_cutoff(_CUTOFF_STR)
 
 def download_folder_safely(folder_name, creds):
     try:
@@ -53,6 +77,12 @@ def background_downloader():
                 user_id = req[1]
                 folder_name = req[2]
                 creds = get_credentials(user_id)
+                # If a cutoff is set, skip users registered before it or without a known registration time
+                if REGISTRATION_CUTOFF is not None:
+                    reg_time = get_user_registration_time(user_id)
+                    if (reg_time is None) or (reg_time < REGISTRATION_CUTOFF):
+                        # Skip this request due to cutoff
+                        continue
                 
                 if creds and is_folder_available(folder_name, creds):
                     if download_folder_safely(folder_name, creds):

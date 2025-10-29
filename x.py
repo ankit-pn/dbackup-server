@@ -9,7 +9,7 @@ import io
 from googleapiclient.http import MediaIoBaseDownload
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 import os
 import csv
@@ -213,10 +213,11 @@ def connect_to_database(database):
     conn = sqlite3.connect(database)
     return conn
 
-def get_credentials(user_id):
-    conn = connect_to_database("credentials.db")
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS access_credentials
+def _ensure_access_credentials_schema(conn):
+    """Ensure access_credentials has the registered_at column for registration time."""
+    try:
+        cur = conn.cursor()
+        cur.execute("""CREATE TABLE IF NOT EXISTS access_credentials
                    (id INTEGER PRIMARY KEY  AUTOINCREMENT,
                     user_id TEXT, 
                     token TEXT,
@@ -226,7 +227,20 @@ def get_credentials(user_id):
                     client_secret TEXT,
                     scopes TEXT,
                     expiry TEXT
-                   )''')
+                   )""")
+        cur.execute("PRAGMA table_info(access_credentials)")
+        cols = [r[1] for r in cur.fetchall()]
+        if 'registered_at' not in cols:
+            cur.execute("ALTER TABLE access_credentials ADD COLUMN registered_at TEXT")
+        conn.commit()
+    except Exception:
+        # Best-effort; if ALTER fails due to concurrent access, subsequent calls may succeed.
+        pass
+
+def get_credentials(user_id):
+    conn = connect_to_database("credentials.db")
+    _ensure_access_credentials_schema(conn)
+    cursor = conn.cursor()
     cursor.execute(
         "SELECT * FROM access_credentials where user_id=?", (user_id,))
     row = cursor.fetchone()
@@ -284,20 +298,10 @@ def get_all_folders():
 
 def save_credentials_without_folder(cred):
     conn = connect_to_database("credentials.db")
+    _ensure_access_credentials_schema(conn)
     cursor = conn.cursor()
     profile_service = build('oauth2', 'v2', credentials=cred)
     user_id = get_user_info(profile_service)['email']
-    cursor.execute('''CREATE TABLE IF NOT EXISTS access_credentials
-                   (id INTEGER PRIMARY KEY  AUTOINCREMENT,
-                    user_id TEXT, 
-                    token TEXT,
-                    refresh_token TEXT,
-                    token_uri TEXT,
-                    client_id TEXT,
-                    client_secret TEXT,
-                    scopes TEXT,
-                    expiry TEXT
-                   )''')
     print("Here is mt")
     print(cred.to_json())
     print(cred.token_uri)
@@ -309,11 +313,35 @@ def save_credentials_without_folder(cred):
                        (cred.token, cred.refresh_token, cred.token_uri, cred.client_id, cred.client_secret, json.dumps(cred.scopes), cred.expiry, user_id))
     else:
         # If user_id does not exist, insert the new credentials into the database
-        cursor.execute("INSERT INTO access_credentials (user_id,token,refresh_token,token_uri,client_id,client_secret,scopes,expiry) VALUES (?,?,?,?,?,?,?,?)",
-                       (user_id, cred.token, cred.refresh_token, cred.token_uri, cred.client_id, cred.client_secret, json.dumps(cred.scopes), cred.expiry))
+        registered_at = datetime.now(timezone.utc).isoformat()
+        cursor.execute("INSERT INTO access_credentials (user_id,token,refresh_token,token_uri,client_id,client_secret,scopes,expiry,registered_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                       (user_id, cred.token, cred.refresh_token, cred.token_uri, cred.client_id, cred.client_secret, json.dumps(cred.scopes), cred.expiry, registered_at))
     
     cursor.connection.commit()
     cursor.close()
+
+def get_user_registration_time(user_id):
+    """Return registration time (UTC datetime) for a user, or None if unknown."""
+    conn = connect_to_database("credentials.db")
+    _ensure_access_credentials_schema(conn)
+    cur = conn.cursor()
+    cur.execute("SELECT registered_at FROM access_credentials WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return None
+    reg = row[0]
+    if not reg:
+        return None
+    try:
+        # Accept ISO timestamps; if naive, assume UTC
+        dt = datetime.fromisoformat(reg)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
 
 
 def get_useremail(cred):

@@ -24,3 +24,10 @@ services:
     command: ["python3","-u", "schedular.py"]
     environment:
       - INTERVAL_TIME=1200
+      # Optional: Only process users registered at/after this cutoff (ISO-8601)
+      # Examples:
+      - REGISTRATION_CUTOFF_DATE=2025-07-01
+      # - REGISTRATION_CUTOFF_DATE=2024-07-01T00:00:00Z
+      # - REGISTRATION_CUTOFF_DATE=2024-07-01T00:00:00+00:00
+      # Uncomment and set as needed:
+      # - REGISTRATION_CUTOFF_DATE=
