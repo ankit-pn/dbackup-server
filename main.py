@@ -15,7 +15,21 @@ import pathlib, shutil, datetime
 
 from bot import send_message_to_telegram
 
+# MongoDB and ChatGPT parsing
+try:
+    import pymongo
+    from mongodb_logger import log_user_action, store_message_ids, compute_overlap
+    MONGODB_AVAILABLE = True
+except ImportError:
+    MONGODB_AVAILABLE = False
+    print("Warning: pymongo not installed, MongoDB logging disabled")
 
+try:
+    from chatgpt_parser import validate_user_data, process_user_upload_directory, parse_chatgpt_file
+    CHATGPT_PARSER_AVAILABLE = True
+except ImportError:
+    CHATGPT_PARSER_AVAILABLE = False
+    print("Warning: chatgpt_parser not available")
 
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
@@ -388,7 +402,8 @@ def sanitize_email(email: str) -> str:
 @app.post("/upload-chatgpt-data/")
 async def upload_chatgpt_data(
     email: str = Form(...),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    user_id: str = Form(None)  # optional, if provided use for logging
 ):
     """
     Save ChatGPT export files (only .html or .json) exactly as they are.
@@ -396,11 +411,14 @@ async def upload_chatgpt_data(
     if not (file.filename.lower().endswith(".html") or file.filename.lower().endswith(".json")):
         raise HTTPException(status_code=400, detail="Only .html and .json files are allowed")
 
+    # Use user_id if provided, else email (email may actually be user_id)
+    effective_user_id = user_id if user_id is not None else email
+
     # base directory for all uploads (create if it doesn't exist)
     base_dir = pathlib.Path("chatgpt_uploads")
     base_dir.mkdir(parents=True, exist_ok=True)
 
-    # user-specific folder
+    # user-specific folder (use sanitized email for folder naming to keep compatibility)
     user_dir = base_dir / sanitize_email(email)
     user_dir.mkdir(exist_ok=True)
 
@@ -412,13 +430,104 @@ async def upload_chatgpt_data(
     with dest_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # Parse file for message IDs and count
+    if CHATGPT_PARSER_AVAILABLE:
+        try:
+            message_ids, count = parse_chatgpt_file(dest_path)
+            if MONGODB_AVAILABLE:
+                store_message_ids(effective_user_id, message_ids)
+        except Exception as e:
+            print(f"Failed to parse ChatGPT file {dest_path}: {e}")
+
+    # Log user action to MongoDB
+    if MONGODB_AVAILABLE:
+        log_user_action(
+            user_id=effective_user_id,
+            action="upload",
+            status="success",
+            metadata={"filename": file.filename, "saved_to": str(dest_path)}
+        )
+
     # Send notification to Telegram
-    message = f"ChatGPT data uploaded for {email}. Saved to {dest_path}."
+    message = f"ChatGPT data uploaded for {effective_user_id}. Saved to {dest_path}."
     send_message_to_telegram('-1002228329906', message)
 
     return {"status": "success", "saved_to": str(dest_path)}
 
 
+
+@app.get("/verify-chatgpt-data/")
+async def verify_chatgpt_data(
+    user_id: str = None,
+    email: str = None
+):
+    """
+    Validate uploaded ChatGPT data for a user.
+    Returns success code TXPYERT911 if validation passes.
+    """
+    if not user_id and not email:
+        raise HTTPException(status_code=400, detail="Either user_id or email must be provided")
+    effective_user_id = user_id if user_id is not None else email
+
+    # Log verification attempt
+    if MONGODB_AVAILABLE:
+        log_user_action(
+            user_id=effective_user_id,
+            action="verification",
+            status="pending",
+            metadata={"step": "started"}
+        )
+
+    # Validate uploaded data (message count >= 200)
+    base_dir = pathlib.Path("chatgpt_uploads")
+    validation_result = validate_user_data(effective_user_id, base_dir)
+    if not validation_result["valid"]:
+        failure_reason = validation_result.get("reason", "Message count insufficient")
+        if MONGODB_AVAILABLE:
+            log_user_action(
+                user_id=effective_user_id,
+                action="verification",
+                status="failure",
+                failure_reason=failure_reason,
+                metadata=validation_result
+            )
+        raise HTTPException(status_code=400, detail=failure_reason)
+
+    # Compute message ID overlap with other users (>10%)
+    if MONGODB_AVAILABLE:
+        overlap_percent = compute_overlap(effective_user_id)
+    else:
+        overlap_percent = 0.0  # Assume overlap if MongoDB not available
+
+    if overlap_percent < 10.0:
+        failure_reason = f"Message ID overlap insufficient: {overlap_percent:.2f}% (need >=10%)"
+        if MONGODB_AVAILABLE:
+            log_user_action(
+                user_id=effective_user_id,
+                action="verification",
+                status="failure",
+                failure_reason=failure_reason,
+                metadata={"overlap_percent": overlap_percent, **validation_result}
+            )
+        raise HTTPException(status_code=400, detail=failure_reason)
+
+    # Validation successful
+    success_code = "TXPYERT911"  # Could be fetched from config/env
+    if MONGODB_AVAILABLE:
+        log_user_action(
+            user_id=effective_user_id,
+            action="verification",
+            status="success",
+            metadata={"success_code": success_code, "overlap_percent": overlap_percent, **validation_result}
+        )
+    return {
+        "status": "success",
+        "success_code": success_code,
+        "message": "Data verification passed",
+        "total_messages": validation_result["total_messages"],
+        "unique_message_ids": validation_result["unique_message_ids"],
+        "overlap_percent": overlap_percent
+    }
 
 @app.post("/upload-audio/")
 async def upload_audio(file: UploadFile = File(...)):
