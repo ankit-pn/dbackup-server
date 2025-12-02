@@ -7,6 +7,9 @@ services:
     environment:
       - CLIENT_ORIGIN=https://www.dbackup.cloud
       - PROXY_SERVER=https://api.dbackup.cloud
+      - MONGODB_URI=mongodb://host.docker.internal:27017
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - /home/kg766/dbackup/mnt/credentials.db:/dbackup-server/credentials.db
       - /home/kg766/dbackup/mnt/saved_data:/dbackup-server/saved_data
@@ -20,7 +23,7 @@ services:
       - /home/kg766/dbackup/mnt/credentials.db:/dbackup-server/credentials.db
       - /home/kg766/dbackup/mnt/saved_data:/dbackup-server/saved_data
       - /home/kg766/dbackup/mnt/logs:/dbackup-server/logs
-      - /home/kg766/dbackup/chatgpt_uploads:/dbackup-server/chatgpt_uploads  
+      - /home/kg766/dbackup/chatgpt_uploads:/dbackup-server/chatgpt_uploads
     command: ["python3","-u", "schedular.py"]
     environment:
       - INTERVAL_TIME=1200
@@ -31,3 +34,6 @@ services:
       # - REGISTRATION_CUTOFF_DATE=2024-07-01T00:00:00+00:00
       # Uncomment and set as needed:
       # - REGISTRATION_CUTOFF_DATE=
+      - MONGODB_URI=mongodb://host.docker.internal:27017
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
